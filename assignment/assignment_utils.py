@@ -57,34 +57,66 @@ def load_camcan_recording(root_dir, subj, record_type, show_figs=False,
     return raw
     
 
-def run_maxfilter(raw, cal_fname, ctc_fname, show_figs=False, results_dir=None):
-    """Run maxfilter on CAMCAN data.
-    """
+def run_maxfilter(raw, cal_fname, ctc_fname, sub_id, show_figs=False, results_dir=None):
+    """Run maxfilter on one subject"""
     raw = maxwell_filter(raw, origin='auto', calibration=cal_fname, 
                          cross_talk=ctc_fname, st_duration=10)
 
     if show_figs or results_dir is not None:
         fig = raw.plot_psd(show=show_figs)
     if results_dir is not None:
-        fig.savefig(os.path.join(results_dir, '1b_psd_after_maxfilter.png'))
+        sub_dir = os.path.join(results_dir, sub_id)  # Create a dir with the ID name
+        if not os.path.exists(sub_dir):
+            os.mkdir(sub_dir)
+        fig.savefig(os.path.join(sub_dir, f'sss_{sub_id}_psd.png'))
 
-    return raw
+    return sub_id, raw
 
 
-def run_bandpass_filter(raw, l_freq=1, h_freq=40, show_figs=False, 
-                        results_dir=None):
-    """Applying bandpass filter.
+def filter_data(raw, sub_id, l_freq=1, h_freq=40, power_line=50, show_figs=False,
+                results_dir=None):
+    """
+    Applying bandpass filter.
 
     Evoked responses are usually below 30-40 Hz. E.g., Gramfort et al. 2014 
     (Front. in Neur.). We also add a low cutoff frequency highpass to perform 
     some detrending, which is specifically needed for ICA.
+
+    Parameters
+    ----------
+
+    raw: mne.Raw object
+         Data to filter
+
+    sub_id: string
+            ID of the subject
+
+    l_freq: int
+            Low frequency for the filter
+
+    h_freq: int
+            High frequency for the filter
+
+    power_line: int
+                Base amount for power-line based notch filtering. Depending
+                on the source of the data, this can be 50 or 60 Hz
+
+    Returns
+    -------
+
+    raw: mne.Raw object
+         Raw data after being filtered
     """
+    raw.notch_filter(freqs=np.range(power_line, (power_line * 4) + 1, power_line))
     raw.filter(l_freq=l_freq, h_freq=h_freq, fir_design='firwin')
 
     if show_figs or results_dir is not None:
         fig = raw.plot_psd(show=show_figs)
     if results_dir is not None:
-        fig.savefig(os.path.join(results_dir, '2_psd_after_bandpass.png'))
+        sub_dir = os.path.join(results_dir, sub_id)  # Create a dir with the ID name
+        if not os.path.exists(sub_dir):
+            os.mkdir(sub_dir)
+        fig.savefig(os.path.join(sub_dir, f'filtered_{sub_id}_psd.png'))
 
     return raw
 
