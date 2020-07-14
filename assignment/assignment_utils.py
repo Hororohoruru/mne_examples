@@ -57,7 +57,7 @@ def load_camcan_recording(root_dir, subj, record_type, show_figs=False,
     return raw
     
 
-def run_maxfilter(raw, cal_fname, ctc_fname, sub_id, show_figs=False, results_dir=None):
+def run_maxfilter(sub_id, raw, cal_fname, ctc_fname, show_figs=False, results_dir=None,):
     """Run maxfilter on one subject"""
     raw = maxwell_filter(raw, origin='auto', calibration=cal_fname, 
                          cross_talk=ctc_fname, st_duration=10)
@@ -73,7 +73,7 @@ def run_maxfilter(raw, cal_fname, ctc_fname, sub_id, show_figs=False, results_di
     return sub_id, raw
 
 
-def filter_data(raw, sub_id, l_freq=1, h_freq=40, power_line=50, show_figs=False,
+def filter_data(sub_id, raw, l_freq=1, h_freq=40, power_line=50, show_figs=False,
                 results_dir=None):
     """
     Applying bandpass filter.
@@ -85,11 +85,11 @@ def filter_data(raw, sub_id, l_freq=1, h_freq=40, power_line=50, show_figs=False
     Parameters
     ----------
 
-    raw: mne.Raw object
-         Data to filter
-
     sub_id: string
             ID of the subject
+
+    raw: mne.Raw object
+         Data to filter
 
     l_freq: int
             Low frequency for the filter
@@ -107,7 +107,7 @@ def filter_data(raw, sub_id, l_freq=1, h_freq=40, power_line=50, show_figs=False
     raw: mne.Raw object
          Raw data after being filtered
     """
-    raw.notch_filter(freqs=np.range(power_line, (power_line * 4) + 1, power_line))
+    raw.notch_filter(freqs=np.arange(power_line, (power_line * 4) + 1, power_line))
     raw.filter(l_freq=l_freq, h_freq=h_freq, fir_design='firwin')
 
     if show_figs or results_dir is not None:
@@ -118,49 +118,87 @@ def filter_data(raw, sub_id, l_freq=1, h_freq=40, power_line=50, show_figs=False
             os.mkdir(sub_dir)
         fig.savefig(os.path.join(sub_dir, f'filtered_{sub_id}_psd.png'))
 
-    return raw
+    return sub_id, raw
 
 
-def run_ica_correction(raw, method='picard', reject=None, decim=3, 
+def run_ica_correction(sub_id, raw, method='picard', reject=None, decim=3,
                        random_state=42, show_figs=False, results_dir=None):
-    """Fit ICA, find EOG and ECG components, and apply to CAMCAN data.
     """
-    picks_meg = mne.pick_types(raw.info, meg=True, eog=False, stim=False, 
-                               exclude='bads')
-    rank = raw.estimate_rank(picks=picks_meg)
+    Fit and apply ICA to correct heartbeats and blinks
 
-    ica = ICA(n_components=rank, method=method, random_state=random_state)
-    reject = None  # {'mag': 5e-12, 'grad': 4000e-13}
-    ica.fit(raw, picks=picks_meg, decim=decim, reject=reject)
+    Parameters
+    ----------
 
-    eog_epochs = create_eog_epochs(raw, reject=None)
+    sub_id: str
+            Subject ID
+
+    raw: mne.Raw object
+         Data to apply ICA to
+
+    method: str, default 'picard'
+            Method for the ICA algorithm. See the documentation on the MNE webpage for other
+            options
+
+    reject: None or dict, default None
+            Reject values previous to the ICA fit and application
+
+    decim: int, default 3
+           ICA parameter. Check out the documentation for more info
+
+    random_state: int, default 42
+                  Seed for ICA random state
+
+    Returns
+    -------
+
+    sub_id: str
+            Subject ID, unchanged
+
+    raw: mne.Raw object
+         Our old friend, but now without blinks and hearbeats (hopefully)
+
+    ica: mne.ICA object
+         The ICA object with the configuration used to eliminate artifacts
+    """
+    # picks_meg = mne.pick_types(raw.info, meg=True, eog=True, stim=True,
+    #                            exclude='bads')
+
+    # The rank will be used as a reference for the ICA components
+    rank = mne.compute_rank(raw)
+
+    ica = ICA(n_components=rank['meg'], method=method, random_state=random_state)
+    ica.fit(raw, decim=decim, reject=reject)  # {'mag': 5e-12, 'grad': 4000e-13}
+
+
+    # Create eog/ecg epochs using our dedicated channels in the data, and then find data
+    # segments containing artifacts
+    eog_epochs = create_eog_epochs(raw, ch_name='EOG061', reject=None)
     eog_inds, _ = ica.find_bads_eog(eog_epochs)
 
     ecg_epochs = create_ecg_epochs(raw, reject=None)
     ecg_inds, _ = ica.find_bads_ecg(ecg_epochs)
-        
+
+    # Compute an average of our eog/ecg epochs
     eog_avg = eog_epochs.average()
     ecg_avg = ecg_epochs.average()
-
-    # if results_dir is not None:
-    #     ica.plot_components()
-    #     ica.plot_sources(eog_avg)
-    #     ica.plot_sources(ecg_avg)
-    #     eog_avg.plot_joint()
-    #     ecg_avg.plot_joint()
 
     if show_figs or results_dir is not None:
         fig_eog = ica.plot_overlay(eog_avg, exclude=eog_inds, show=show_figs)
         fig_ecg = ica.plot_overlay(ecg_avg, exclude=ecg_inds, show=show_figs)
     if results_dir is not None:
-        fig_eog.savefig(os.path.join(results_dir, '3a_eog_correction.png'))
-        fig_ecg.savefig(os.path.join(results_dir, '3b_ecg_correction.png'))
-        
+        sub_dir = os.path.join(results_dir, sub_id)  # Create a dir with the ID name
+        if not os.path.exists(sub_dir):
+            os.mkdir(sub_dir)
+
+        fig_eog.savefig(os.path.join(sub_dir, f'{sub_id}_eog_correction.png'))
+        fig_ecg.savefig(os.path.join(sub_dir, f'{sub_id}_ecg_correction.png'))
+
+    # Tell our friend ICA what to do, and apply to data
     ica.exclude.extend(eog_inds)
     ica.exclude.extend(ecg_inds)
     ica.apply(raw)
 
-    return raw, ica
+    return sub_id, raw, ica
 
 
 def extract_epochs_camcan(raw, tmin=-0.2, tmax=0.5, event_id=None):
