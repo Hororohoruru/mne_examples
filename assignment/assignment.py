@@ -5,8 +5,6 @@ Author: Juan Jesus Torre
 email: juanjesustorre@gmail.com
 
 TODO:
-    - Add argparser interface
-    - Handle saving of intermediate files (maxfilter, band-pass + notch filter, etc)
     - Handle skipping steps if files are already computed
     - Add overwrite
     - Add verbose parameter
@@ -14,6 +12,7 @@ TODO:
     - Check picks for ICA
 """
 
+import argparse
 import os
 
 import mne
@@ -23,14 +22,38 @@ from joblib import Parallel, delayed
 from mne.preprocessing import maxwell_filter
 
 from assignment_utils import (get_data_paths, get_subject_ids, run_maxfilter, filter_data,
-                              run_ica_correction)
+                              run_ica_correction, save_files)
+
+
+parser = argparse.ArgumentParser(description='Parameters for the pipeline')
+parser.add_argument('-t', '--type', metavar='FileType', type=str,
+                    default='passive', choices=['passive', 'rest', 'task'],
+                    help="File type to analyze for each subject. Choices: "
+                         "%(choices)s. Default: %(default)s")
+parser.add_argument('-lf', '--lowfreq', metavar='LowFrequency', type=int,
+                    default=1, help="Low frequency for band-pass filter. "
+                                    "Default: %(default)s")
+parser.add_argument('-hf', '--hifreq', metavar='HighFrequency', type=int,
+                    default=40, help="High frequency for band-pass filter. "
+                                    "Default: %(default)s")
+parser.add_argument('-p', '--power', metavar='PowerLine', type=int,
+                    default=50, help="Frequency for notch filter harmonics."
+                                     "Default: %(default)s")
+parser.add_argument('-s', '--save', metavar='Save', type=bool,
+                    default=True, choices=[True, False],
+                    help="File type to analyze for each subject. Choices: "
+                         "%(choices)s. Default: %(default)s")
+
+args = parser.parse_args()
+file_type = args.type
+l_freq = args.lowfreq
+h_freq = args.hifreq
+power_line = args.power
+save = args.save
+
 
 # Some global arguments
 root_dir, save_dir, cal_fname, ctc_fname = get_data_paths()
-file_type = 'passive'
-l_freq = 1
-h_freq = 40
-power_line = 50
 
 if file_type == 'passive':
     event_dict = {'Auditory 300Hz': 6,  # See trigger_codes.txt
@@ -59,6 +82,11 @@ print("")
 print('Maxfilter passed on all subjects')
 print("")
 
+if save:
+    save_files(sss_raw_list, save_dir, prefix='maxwell', suffix=file_type)
+    print("Saved files with maxwell filter applied")
+    print("")
+
 # Subject by subject, enter interactive mode to visually inspect the data and mark bad channels,
 # that will be excluded after you manually close the interactive console pressing Ctrl+D
 for id, data in sss_raw_list:
@@ -85,6 +113,11 @@ print(f'Notch filter at {power_line} and band pass filter between {l_freq} and {
       f'applied to all subjects')
 print("")
 
+if save:
+    save_files(filter_raw_list, save_dir, prefix='filtered', suffix=file_type)
+    print("Saved notch and band pass filters applied")
+    print("")
+
 # Now apply ICA correction for heartbeats and blinks
 ica_raw_list = Parallel(n_jobs=len(sub_ids))(delayed(run_ica_correction)(
                         sub_id=sub_id,
@@ -94,3 +127,8 @@ ica_raw_list = Parallel(n_jobs=len(sub_ids))(delayed(run_ica_correction)(
 print("")
 print(f'ICA run for all subjects')
 print("")
+
+if save:
+    save_files(sss_raw_list, save_dir, prefix='ica_corrected', suffix=file_type)
+    print("Saved files with ICA correction applied for EOG and ECG artifacts")
+    print("")

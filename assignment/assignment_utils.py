@@ -40,6 +40,7 @@ def get_subject_ids(root_dir, n_sub=None):
 
     return sub_ids
 
+
 def load_camcan_recording(root_dir, subj, record_type, show_figs=False, 
                           results_dir=None):
     """Load a CAMCAN recording.
@@ -55,9 +56,42 @@ def load_camcan_recording(root_dir, subj, record_type, show_figs=False,
         fig.savefig(os.path.join(results_dir, '1a_raw_psd.png'))
 
     return raw
-    
 
-def run_maxfilter(sub_id, raw, cal_fname, ctc_fname, show_figs=False, results_dir=None,):
+
+def save_files(file_list, save_dir, prefix, suffix='', extension='fif'):
+    """
+    Save a file to disk, to keep track of intermediate steps of the processing
+
+    Parameters
+    ----------
+
+    file_list: list of tuples
+               First element of the tuple is the subject ID, and the second is the file to save
+
+    save_dir: str or path object
+              Absolute path to save the file to
+
+    prefix: str
+            String to append before the subject ID. Related to the processing step
+
+    suffix: str, default ''
+            String to append after the subject ID. Related to the type of file if any
+
+    extension: str, default 'fif'
+               File extension for the output files. Do not include the dot
+    """
+
+    for sub_id, data in file_list:
+        filename = f"{prefix}-{sub_id}_{suffix}.{extension}"
+        save_path = os.path.join(save_dir, f"{sub_id}/{filename}")
+        if not os.path.exists(os.path.dirname(save_path)):
+            os.mkdir(save_path)
+
+        data.save(save_path, overwrite=True)
+
+
+def run_maxfilter(sub_id, raw, cal_fname, ctc_fname, show_figs=False,
+                  results_dir=None):
     """Run maxfilter on one subject"""
     raw = maxwell_filter(raw, origin='auto', calibration=cal_fname, 
                          cross_talk=ctc_fname, st_duration=10)
