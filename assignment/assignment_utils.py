@@ -138,6 +138,9 @@ def filter_data(sub_id, raw, l_freq=1, h_freq=40, power_line=50, show_figs=False
     Returns
     -------
 
+    sub_id: string
+            ID of the subject
+
     raw: mne.Raw object
          Raw data after being filtered
     """
@@ -151,6 +154,48 @@ def filter_data(sub_id, raw, l_freq=1, h_freq=40, power_line=50, show_figs=False
         if not os.path.exists(sub_dir):
             os.mkdir(sub_dir)
         fig.savefig(os.path.join(sub_dir, f'filtered_{sub_id}_psd.png'))
+
+    return sub_id, raw
+
+
+def interpolate_reference_data(sub_id, raw, reference_type='average'):
+    """
+    Try to interpolate bad EEG channels, then apply re-reference
+
+    Parameters
+    ----------
+
+    sub_id: string
+            ID of the subject
+
+    raw: mne.Raw object
+         Data to filter
+
+    reference_type: str or list of str, default 'average'
+                    Parameter for set_eeg_reference method. Can be a string or a list of
+                    valid EEG channels
+
+    Returns
+    -------
+
+    sub_id: string
+            ID of the subject
+
+    raw: mne.Raw object
+         Raw data after being filtered
+    """
+
+    if raw.info["bads"]:
+        try:
+            print("Trying to interpolate bad channels...")
+            raw.interpolate_bads()
+        except RuntimeError:
+            print("Missing headshape digitaliztion, skipping interpolation...")
+            pass
+
+    # Re-reference data. If no re-reference is needed, passing an empty list as a parameter
+    # will avoid any re-referencing
+    raw.set_eeg_reference(reference_type, projection=False)
 
     return sub_id, raw
 

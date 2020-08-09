@@ -23,7 +23,7 @@ from joblib import Parallel, delayed
 from mne.preprocessing import maxwell_filter
 
 from assignment_utils import (get_data_paths, get_subject_ids, run_maxfilter, filter_data,
-                              run_ica_correction, save_files)
+                              run_ica_correction, save_files, interpolate_reference_data)
 
 
 parser = argparse.ArgumentParser(description='Parameters for the pipeline')
@@ -67,11 +67,17 @@ raw_names = glob.glob(os.path.join(root_dir, '*.set'))
 raw_dict = {os.path.basename(file).split('.')[0]: mne.io.read_raw_eeglab(file, preload=True) for
             file in raw_names}
 
+# Create a default re-reference dict to be changed manually later if necessary
+re_reference_dict = {sub_id: 'average' for sub_id, _ in raw_dict}
+
 # Apply notch filter and band-pass filter to the data
 # The resulting list consists of tuples with (sub_id, filter_raw) information
-filter_raw_list = Parallel(n_jobs=len(raw_names))(delayed(filter_data)(
+preproc_raw_list = Parallel(n_jobs=len(raw_names))(delayed(filter_data)(
                            sub_id=sub_id,
                            raw=raw,
+                           l_freq=l_freq,
+                           h_freq=h_freq,
+                           power_line=power_line,
                            results_dir=save_dir) for sub_id, raw in raw_dict.items())
 
 print("")
@@ -81,9 +87,12 @@ print("")
 
 # Subject by subject, enter interactive mode to visually inspect the data and mark bad channels,
 # that will be excluded after you manually close the interactive console pressing Ctrl+D
-for id, data in filter_raw_list:
+for id, data in preproc_raw_list:
     print(f"Interactive mode for sub {id}. Please check the data and mark bad channels "
-          f"if necessary (adding them to data.info['bads'])")
+          f"if necessary (adding them to data.info['bads']). Also, plase check the data"
+          f"and select channels to be used for re-referencing (defaults to 'average' for"
+          f"all subjects). You can change it assigning a list of channels or an empty list"
+          f"to re_reference_list[id].")
     print("")
 
     shell = InteractiveShellEmbed()
@@ -93,8 +102,17 @@ for id, data in filter_raw_list:
 
     data.pick_types(eeg=True, eog=True, ecg=True, stim=True, exclude='bads')
 
+# Interpolate bads and add re-reference to data
+preproc_raw_list = Parallel(n_jobs=len(raw_names))(delayed(interpolate_reference_data)(
+                            sub_id=sub_id,
+                            raw=raw,
+                            referene_type=re_reference_dict[sub_id])
+                            for sub_id, raw in raw_dict.items())
+
+print("Performed bad channels interpolation and re-referencing for all subjects.")
+
 if save:
-    save_files(filter_raw_list, save_dir, prefix='filtered', suffix=file_type)
+    save_files(preproc_raw_list, save_dir, prefix='filtered', suffix=file_type)
     print("Saved notch and band pass filters applied")
     print("")
 
